@@ -26,6 +26,9 @@ void mostramappa(int sockfd){
 
     send(sockfd, packet, 1, 0);
     recv(sockfd, stati, FILE*POLTRONE, 0);
+    // TODO: tutti i recv dovrebbero controllare che non diano errore -1
+
+    
 
     for(int i = 0; i < FILE; i++){
         printf("fila %d:\n", i);
@@ -119,6 +122,14 @@ int main(int argc, char *argv[]){
      - Funzione principale.
     - Stabilisce la connessione TCP al server e gestisce il menu interattivo.
 */
+    // FIX: metto la possibilità di impostare l'ip tramite argomento passato da riga di comando
+    // TODO: aggiornare il README con questa informazione
+    char* target_ip = SERVER_IP; // Usa l'IP di default
+
+    // Se l'utente passa un IP da terminale, usa quello
+    if (argc > 1) {
+        target_ip = argv[1];
+    }
 
     int sockfd = socket(AF_INET, SOCK_STREAM, 0); // Crea il socket
 
@@ -126,7 +137,7 @@ int main(int argc, char *argv[]){
     struct sockaddr_in server_addr = {
         .sin_family = AF_INET,
         .sin_port = htons(PORT),
-        .sin_addr.s_addr = inet_addr(SERVER_IP)
+        .sin_addr.s_addr = inet_addr(target_ip) // FIX: modificata pure qua
     };
 
     // Connessione al server
