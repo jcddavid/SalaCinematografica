@@ -73,15 +73,17 @@ void* client_handler(void* cs) {
 
         } else if(packet[0] == 98) { // 'b' = DISDIRE
             char codice[11];
-            bool trovato;
+            bool trovato = false; // FIX: inizializzo a false se non viene trovato
             for (int i = 0; i<10; i++) {
                 codice[i] = packet[i+1];
             }
             codice[10] = '\0';
         
             pthread_mutex_lock(&lock);
-            for (int i = 0; i < FILE; i++) {
-                for (int j = 0; j < POLTRONE; j++) {
+            
+            // FIX: Migliorato il ciclo for per far sì che si fermi quando trovato viene impostato a true e non cicli inutilmente
+            for (int i = 0; i < FILE && !trovato; i++) {
+                for (int j = 0; j < POLTRONE && !trovato; j++) {
                     if (strcmp(posti[i][j].codice, codice) == 0) {
                         memset(posti[i][j].codice, 0, 10);
                         posti[i][j].occupato = false;
@@ -145,7 +147,12 @@ int main(int argc, char *argv[]) {
         int* client_s_cpy = (int*)malloc(sizeof(int));
         *client_s_cpy = client_s;
 
-        pthread_create(&thread, NULL, client_handler, (void*)client_s_cpy);
+        // FIX: controllo errore su pthread_create
+        if(pthread_create(&thread, NULL, client_handler, (void*)client_s_cpy) < 0){
+            perror("Thread create\n");
+            exit(EXIT_FAILURE);
+        }
+        pthread_detach(thread); // FIX: aggiungo il detach così libero la memoria quando il thread termina
         printf("Client connected: %s\n", inet_ntoa(client_addr.sin_addr));
     }
 
