@@ -27,8 +27,15 @@ void mostramappa(int sockfd){
     char packet[1] = {'s'};
     char stati[FILE_CINEMA*POLTRONE + 1];
 
-    send(sockfd, packet, 1, 0);
-    recv(sockfd, stati, FILE_CINEMA*POLTRONE, 0);
+    if (send(sockfd, packet, 1, 0) < 0) {
+        perror("Errore nell'invio della richiesta mappa");
+        return;
+    }
+    
+    if (recv(sockfd, stati, FILE_CINEMA*POLTRONE, 0) <= 0) {
+        perror("Errore nella ricezione della mappa");
+        return;
+    }
 
     for(int i = 0; i < FILE_CINEMA; i++){
         printf("fila %d:\t", i);
@@ -79,10 +86,16 @@ void prenota(int sockfd){
     if(fila >= FILE_CINEMA || poltrona + n_posti > POLTRONE || n_posti <= 0){
         printf("❌ Posto o quantità non validi. Riprova.\n");
     } else {
-        send(sockfd, packet, sizeof(packet), 0);        
+        if (send(sockfd, packet, sizeof(packet), 0) < 0) {
+            perror("Errore nell'invio della richiesta di prenotazione");
+            return;
+        }        
 
         char codice[11] = {0};
-        recv(sockfd, codice, 10, 0);        
+        if (recv(sockfd, codice, 10, 0) <= 0) {
+            perror("Errore nella ricezione del codice di prenotazione");
+            return;
+        }        
 
         if (strcmp(codice, "XXXXXXXXXX") == 0) {
             printf("❌ Impossibile prenotare. Uno o più posti richiesti sono già occupati.\n");
@@ -92,11 +105,15 @@ void prenota(int sockfd){
             // --- LAYER DI PERSISTENZA ---
             FILE *f = fopen("prenotazioni.txt", "a");
             if (f != NULL) {
-                fprintf(f, "Codice: %s | Fila: %d | Poltrona partenza: %d | Quantita': %d\n", codice, fila, poltrona, n_posti);
-                fclose(f);
+                if (fprintf(f, "Codice: %s | Fila: %d | Poltrona partenza: %d | Quantita': %d\n", codice, fila, poltrona, n_posti) < 0) {
+                    perror("Errore durante la scrittura della prenotazione in locale");
+                }
+                if (fclose(f) != 0) {
+                    perror("Errore durante la chiusura del file delle prenotazioni");
+                }
                 printf("💾 Prenotazione salvata nel file locale 'prenotazioni.txt'.\n");
             } else {
-                printf("⚠️ Errore nel salvataggio locale della prenotazione.\n");
+                perror("⚠️ Errore nell'apertura del file locale. Salvataggio fallito");
             }
         }
     }
@@ -117,10 +134,16 @@ void disdici(int sockfd){
     fflush_stdin();
 
     memcpy(&packet[1], codice, 10);         
-    send(sockfd, packet, sizeof(packet), 0);
+    if (send(sockfd, packet, sizeof(packet), 0) < 0) {
+        perror("Errore nell'invio della richiesta di disdetta");
+        return;
+    }
 
     char risposta[11] = {0};
-    recv(sockfd, risposta, 10, 0);      
+    if (recv(sockfd, risposta, 10, 0) <= 0) {
+        perror("Errore nella ricezione della risposta alla disdetta");
+        return;
+    }      
 
     if (strcmp(risposta, "OK") == 0) {
         printf("✅ Prenotazione annullata correttamente. I posti sono stati liberati.\n");
@@ -141,7 +164,10 @@ void visualizza_salvate() {
     while (fgets(linea, sizeof(linea), f) != NULL) {
         printf("- %s", linea);
     }
-    fclose(f);
+    
+    if (fclose(f) != 0) {
+        perror("Errore durante la chiusura del database locale");
+    }
 }
 
 int main(int argc, char *argv[]){
@@ -156,22 +182,25 @@ int main(int argc, char *argv[]){
     }
 
     int sockfd = socket(AF_INET, SOCK_STREAM, 0); 
-	
-	// Configura indirizzo del server
+    if (sockfd < 0) {
+        perror("Errore nella creazione del socket client");
+        exit(EXIT_FAILURE);
+    }
+    
+    // Configura indirizzo del server
     struct sockaddr_in server_addr = {
         .sin_family = AF_INET,
         .sin_port = htons(PORT),
         .sin_addr.s_addr = inet_addr(target_ip) 
     };
-	
-	// Connessione al server
+    
+    // Connessione al server
     if (connect(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-        perror("Errore di connessione");
+        perror("Errore di connessione al server");
         exit(EXIT_FAILURE);
     }
-	
-	
-	// Menu' principale
+    
+    // Menu' principale
     char scelta;
     while (1) {
         printf("\n=== CINEMA DAVID & TARLEV 🎥🍿 ===\n");
@@ -188,11 +217,14 @@ int main(int argc, char *argv[]){
             case 'b': disdici(sockfd); break;
             case 'c': visualizza_salvate(); break;
             case 'q':
-                close(sockfd);
+                if (close(sockfd) < 0) {
+                    perror("Errore durante la chiusura del socket");
+                }
                 printf("Arrivederci!\n");
                 return 0;
             default:
                 printf("Scelta non valida.\n");
         }
     }
+    return 0;
 }
