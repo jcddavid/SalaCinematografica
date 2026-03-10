@@ -10,7 +10,6 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-
 #define FILE_CINEMA 10
 #define POLTRONE 20
 #define PORT 5587
@@ -36,8 +35,12 @@ void salva_stato_server() {
     FILE *f = fopen("stato_cinema.dat", "wb");
     if (f != NULL) {
         // Scrive l'intera matrice in un colpo solo in formato binario
-        fwrite(posti, sizeof(Posto), FILE_CINEMA * POLTRONE, f);
-        fclose(f);
+        if (fwrite(posti, sizeof(Posto), FILE_CINEMA * POLTRONE, f) != FILE_CINEMA * POLTRONE) {
+            perror("Errore durante la scrittura del file di stato");
+        }
+        if (fclose(f) != 0) {
+            perror("Errore durante la chiusura del file di stato");
+        }
     } else {
         perror("Errore nel salvataggio del file di stato");
     }
@@ -51,7 +54,9 @@ void* client_handler(void* cs) {
     while(true) {
         ssize_t msg_len = recv(client_s, packet, sizeof(packet), 0);
         if (msg_len <= 0) {
-            close(client_s);
+            if (close(client_s) < 0) {
+                perror("Errore durante la chiusura del socket client");
+            }
             pthread_exit(NULL);
         }
 
@@ -88,9 +93,13 @@ void* client_handler(void* cs) {
                 }
                 
                 salva_stato_server(); // Salva su disco dopo la prenotazione
-                send(client_s, code, 10, 0);
+                if (send(client_s, code, 10, 0) < 0) {
+                    perror("Errore nell'invio del codice di prenotazione");
+                }
             } else {
-                send(client_s, "XXXXXXXXXX", 10, 0);
+                if (send(client_s, "XXXXXXXXXX", 10, 0) < 0) {
+                    perror("Errore nell'invio del messaggio di fallimento prenotazione");
+                }
                 printf("Richiesta negata: posti già occupati o fuori limite!\n");
             }
             fflush(stdout);
@@ -123,10 +132,14 @@ void* client_handler(void* cs) {
 
             if (posti_liberati > 0) {
                 printf("Prenotazione %s cancellata (%d posti liberati)\n", codice, posti_liberati);
-                send(client_s, "OK", 10, 0);
+                if (send(client_s, "OK", 10, 0) < 0) {
+                    perror("Errore nell'invio della conferma di disdetta");
+                }
             } else {
                 printf("Prenotazione non esistente!\n");
-                send(client_s, "NO", 10, 0);
+                if (send(client_s, "NO", 10, 0) < 0) {
+                    perror("Errore nell'invio del fallimento di disdetta");
+                }
             }
 
         } else if(packet[0] == 115) { // 's' = Manda mappa dei posti aggiornata al client
@@ -137,7 +150,9 @@ void* client_handler(void* cs) {
                     mappa[i*POLTRONE + j] = posti[i][j].occupato ? '1' : '0';
                 }
             }
-            send(client_s, mappa, FILE_CINEMA*POLTRONE, 0);
+            if (send(client_s, mappa, FILE_CINEMA*POLTRONE, 0) < 0) {
+                perror("Errore nell'invio della mappa dei posti");
+            }
             pthread_mutex_unlock(&lock);
         }
         memset(packet, 0, 0xFF);
@@ -151,8 +166,12 @@ int main(int argc, char *argv[]) {
     FILE *f_stato = fopen("stato_cinema.dat", "rb");
     if (f_stato != NULL) {
         // Se il file esiste, ricarica la matrice dei posti
-        fread(posti, sizeof(Posto), FILE_CINEMA * POLTRONE, f_stato);
-        fclose(f_stato);
+        if (fread(posti, sizeof(Posto), FILE_CINEMA * POLTRONE, f_stato) != FILE_CINEMA * POLTRONE) {
+            perror("Attenzione: lettura file di stato incompleta o fallita");
+        }
+        if (fclose(f_stato) != 0) {
+            perror("Errore durante la chiusura del file di stato letto");
+        }
         printf("✅ Stato del cinema ripristinato dal disco.\n");
     } else {
         // Altrimenti assicura che sia tutto a zero
@@ -161,8 +180,16 @@ int main(int argc, char *argv[]) {
     }
 
     int s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) {
+        perror("Errore durante la creazione del socket");
+        exit(EXIT_FAILURE);
+    }
+    
     int opt = 1;
-    setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)); // Permette di riavviare il socket velocemente
+    if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) { // Permette di riavviare il socket velocemente
+        perror("Errore nell'impostazione delle opzioni del socket (setsockopt)");
+        exit(EXIT_FAILURE);
+    }
 
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(PORT);
@@ -179,22 +206,38 @@ int main(int argc, char *argv[]) {
     }
 
     printf("🎥 Server Cinema in ascolto sulla porta %d...\n", PORT);
-	
-	// Accetta le richieste di connessione da parte dei client
+    
+    // Accetta le richieste di connessione da parte dei client
     while(true) {
         pthread_t thread;
         struct sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);
 
         int client_s = accept(s, (struct sockaddr*)&client_addr, &client_len);
+        if (client_s < 0) {
+            perror("Errore durante l'accept della connessione in entrata");
+            continue; // Se fallisce una connessione, il server non si spegne ma riprova ad accettare le prossime
+        }
+        
         int* client_s_cpy = (int*)malloc(sizeof(int));
+        if (client_s_cpy == NULL) {
+            perror("Errore allocazione memoria (malloc) per il socket del client");
+            close(client_s);
+            continue;
+        }
         *client_s_cpy = client_s;
 
         if(pthread_create(&thread, NULL, client_handler, (void*)client_s_cpy) < 0){
             perror("Thread create\n");
-            exit(EXIT_FAILURE);
+            free(client_s_cpy);
+            close(client_s);
+            continue; // Continuiamo a far vivere il server principale anche se fallisce un thread
         }
-        pthread_detach(thread);
+        
+        if (pthread_detach(thread) != 0) {
+            perror("Errore nel detach del thread");
+        }
+        
         printf("Client connected: %s\n", inet_ntoa(client_addr.sin_addr));
     }
 
