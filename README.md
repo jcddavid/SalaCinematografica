@@ -50,10 +50,7 @@ Il progetto adotta un'architettura client-server per gestire in modo centralizza
   Ogni prenotazione viene identificata da un codice alfanumerico generato casualmente e trasmesso al client, che lo usa anche per eventuali disdette.
 
 ## 📖 Manuale d'uso
-
+Per eseguire il client, usare il comando `./client [IP DEL SERVER]`
+Per eseguire il server, usare il comando `./server`
 ### ⚙️ Compilazione
 Per la compilazione, utilizzare il comando `gcc server.c -o server` e `gcc client.c -o client`.
-
-
-
-
